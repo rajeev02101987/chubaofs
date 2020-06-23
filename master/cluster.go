@@ -24,6 +24,7 @@ import (
 	"github.com/chubaofs/chubaofs/util"
 	"github.com/chubaofs/chubaofs/util/errors"
 	"github.com/chubaofs/chubaofs/util/log"
+	"strings"
 )
 
 // Cluster stores all the cluster-level information.
@@ -1642,4 +1643,62 @@ func (c *Cluster) clearMetaNodes() {
 		metaNode.clean()
 		return true
 	})
+}
+
+func (c *Cluster) updateMetaPartitionHosts(volName, hosts string, partitionID uint64) (err error) {
+	var (
+		vol      *Vol
+		mp       *MetaPartition
+		oldHosts []string
+		oldPeers []proto.Peer
+		newHosts []string
+		newPeers []proto.Peer
+	)
+	log.LogWarnf("action[updateMetaPartitionHosts],volName[%v],partitionID[%v],newHosts[%v]", volName, partitionID, hosts)
+	if vol, err = c.getVol(volName); err != nil {
+		log.LogWarn("action[updateMetaPartitionHosts],1")
+		goto errDeal
+	}
+	if mp, err = vol.metaPartition(partitionID); err != nil {
+		goto errDeal
+	}
+	mp.Lock()
+	defer mp.Unlock()
+	newHosts = strings.Split(hosts, commaSplit)
+	if len(newHosts) != int(mp.ReplicaNum) {
+		err = fmt.Errorf("the number of host[%v] must be equal with replicaNum[%v]", hosts, mp.ReplicaNum)
+		goto errDeal
+	}
+	newPeers = make([]proto.Peer, 0)
+	for _, host := range newHosts {
+		metaNode, err1 := c.metaNode(host)
+		if err1 != nil {
+			err = err1
+			goto errDeal
+		}
+		peer := proto.Peer{ID: metaNode.ID, Addr: host}
+		newPeers = append(newPeers, peer)
+	}
+	// reset hosts and peers
+	oldHosts = mp.Hosts
+	oldPeers = mp.Peers
+	mp.Hosts = newHosts
+	mp.Peers = newPeers
+	if err = c.syncUpdateMetaPartition(mp); err != nil {
+		mp.Hosts = oldHosts
+		mp.Peers = oldPeers
+		goto errDeal
+	}
+	mp.Replicas = make([]*MetaReplica, 0)
+	mp.Status = proto.Unavailable
+	mp.MissNodes = make(map[string]int64, 0)
+	log.LogWarnf("action[updateMetaPartitionHosts],vol[%v],mpID[%v] update hosts success,newHosts[%v],oldHosts[%v]",
+		volName, partitionID, hosts, strings.Join(oldHosts, underlineSeparator))
+	return
+errDeal:
+	log.LogError(fmt.Sprintf("action[updateMetaPartitionHosts],volName: %v,partitionID: %v,err: %v",
+		volName, partitionID, errors.Stack(err)))
+	Warn(c.Name, fmt.Sprintf("clusterID[%v] vol[%v] mpID[%v] update failed,err:%v",
+		c.Name, volName, partitionID, err))
+	return
 }

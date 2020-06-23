@@ -129,6 +129,9 @@ func (m *Server) registerAPIRoutes(router *mux.Router) {
 
 	// meta partition management APIs
 	router.NewRoute().Methods(http.MethodGet, http.MethodPost).
+		Path(proto.AdminUpdateMetaPartitionHosts).
+		HandlerFunc(m.updateMetaPartitionHosts)
+	router.NewRoute().Methods(http.MethodGet, http.MethodPost).
 		Path(proto.AdminLoadMetaPartition).
 		HandlerFunc(m.loadMetaPartition)
 	router.NewRoute().Methods(http.MethodGet, http.MethodPost).

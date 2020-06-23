@@ -821,6 +821,43 @@ func (m *Server) getMetaNode(w http.ResponseWriter, r *http.Request) {
 	sendOkReply(w, r, newSuccessHTTPReply(metaNodeInfo))
 }
 
+func (m *Server) updateMetaPartitionHosts(w http.ResponseWriter, r *http.Request) {
+	var (
+		partitionID uint64
+		volName     string
+		hosts       string
+		msg         string
+		err         error
+	)
+	if volName, hosts, partitionID, err = parseUpdateMetaPartitionHosts(r); err != nil {
+		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: err.Error()})
+		return
+	}
+
+	if err = m.cluster.updateMetaPartitionHosts(volName, hosts, partitionID); err != nil {
+		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: err.Error()})
+		return
+	}
+	msg = fmt.Sprintf("updateMetaPartitionHosts partitionID :%v,hosts[%v] success", partitionID, hosts)
+	sendOkReply(w, r, newSuccessHTTPReply(msg))
+	return
+}
+
+func parseUpdateMetaPartitionHosts(r *http.Request) (volName, hosts string, partitionID uint64, err error) {
+	r.ParseForm()
+	if partitionID, err = extractMetaPartitionID(r); err != nil {
+		return
+	}
+	if volName, err = extractName(r); err != nil {
+		return
+	}
+	if hosts = r.FormValue(ParaHosts); hosts == "" {
+		err = unmatchedKey(ParaHosts)
+		return
+	}
+	return
+}
+
 func (m *Server) decommissionMetaPartition(w http.ResponseWriter, r *http.Request) {
 	var (
 		partitionID uint64
@@ -1723,9 +1760,9 @@ func extractName(r *http.Request) (name string, err error) {
 		err = keyNotFound(nameKey)
 		return
 	}
-	if !volNameRegexp.MatchString(name) {
-		return "", errors.New("name can only be number and letters")
-	}
+	//if !volNameRegexp.MatchString(name) {
+	//	return "", errors.New("name can only be number and letters")
+	//}
 
 	return
 }
